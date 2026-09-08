@@ -130,4 +130,50 @@ describe('CronJobStore', () => {
     })
     assert.strictEqual(notified, 1)
   })
+
+  it('rejects invalid sessionStrategy on update', () => {
+    const job = store.create({
+      name: 'Fixed Job',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    assert.throws(() => store.update(job.id, { sessionStrategy: 'bogus' }), /sessionStrategy/)
+  })
+
+  it('rejects empty name on update', () => {
+    const job = store.create({
+      name: 'Rename Me',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    assert.throws(() => store.update(job.id, { name: '   ' }), /name/i)
+  })
+
+  it('rejects empty prompt on update', () => {
+    const job = store.create({
+      name: 'Prompt Me',
+      schedule: '0 10 * * *',
+      prompt: 'Original',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    assert.throws(() => store.update(job.id, { prompt: '' }), /prompt/i)
+  })
+
+  it('still accepts valid update fields', () => {
+    const job = store.create({
+      name: 'Valid',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    const updated = store.update(job.id, { name: 'Renamed', enabled: false })
+    assert.strictEqual(updated.name, 'Renamed')
+    assert.strictEqual(updated.enabled, false)
+  })
 })
