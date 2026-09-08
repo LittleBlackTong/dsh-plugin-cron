@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-cron
+      name: dsh-plugin-cron
