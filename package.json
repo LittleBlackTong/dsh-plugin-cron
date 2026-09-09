@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-cron",
-  "description": "Cron job manager for DeepSeek Harness: schedule agent tasks via natural language or settings UI.",
-  "version": "0.1.0",
+  "description": "Cron scheduler plugin for DeepSeek Harness: schedule agent tasks via natural language or a sidebar UI, with fixed/new session strategies, run history, manual trigger, and live sync.",
+  "version": "0.2.0",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -31,7 +31,7 @@
     }
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test 'test/*.test.js'"
   },
   "engines": {
     "node": ">=18"
@@ -43,10 +43,20 @@
     "plugin",
     "cron",
     "scheduler",
-    "agent"
+    "agent",
+    "task-scheduler",
+    "automation"
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "^3.18.1"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LittleBlackTong/dsh-plugin-cron.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LittleBlackTong/dsh-plugin-cron/issues"
+  },
+  "homepage": "https://github.com/LittleBlackTong/dsh-plugin-cron#readme"
 }

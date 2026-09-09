@@ -196,4 +196,82 @@ describe('CronJobStore', () => {
     assert.strictEqual(store.get(job.id).createdAt, originalCreatedAt)
     assert.strictEqual(store.list().some(j => j.id === 'hacked'), false)
   })
+
+  it('get() returns a copy, not the live internal object', () => {
+    const job = store.create({
+      name: 'CopyCheck',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    const got = store.get(job.id)
+    got.name = 'Mutated Externally'
+    assert.strictEqual(store.get(job.id).name, 'CopyCheck', 'mutating get() result must not affect store internals')
+  })
+
+  it('never lets a patch override run-tracking fields (lastRunAt/lastRunStatus/runCount)', () => {
+    const job = store.create({
+      name: 'RunTrack',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    store.recordRun(job.id, { status: 'success' })
+    assert.strictEqual(store.get(job.id).runCount, 1)
+    assert.strictEqual(store.get(job.id).lastRunStatus, 'success')
+    // a user patch must not forge/clear these
+    const updated = store.update(job.id, { lastRunAt: 0, lastRunStatus: 'failed', runCount: 999, name: 'Renamed' })
+    assert.strictEqual(updated.name, 'Renamed')
+    assert.strictEqual(updated.runCount, 1, 'runCount must be preserved against patch')
+    assert.strictEqual(updated.lastRunStatus, 'success', 'lastRunStatus must be preserved against patch')
+  })
+
+  it('recordRun tracks success/failed/skipped and increments runCount only on success', () => {
+    const job = store.create({
+      name: 'RunLog',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    store.recordRun(job.id, { status: 'success' })
+    store.recordRun(job.id, { status: 'failed', error: 'boom' })
+    store.recordRun(job.id, { status: 'skipped' })
+    const final = store.get(job.id)
+    assert.strictEqual(final.runCount, 1, 'only success increments runCount')
+    assert.strictEqual(final.lastRunStatus, 'skipped', 'last status wins')
+    assert.ok(final.lastRunAt > 0)
+  })
+
+  it('recordRun stores error on failed but clears it on success', () => {
+    const job = store.create({
+      name: 'ErrLog',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    store.recordRun(job.id, { status: 'failed', error: 'boom' })
+    assert.strictEqual(store.get(job.id).lastRunError, 'boom')
+    store.recordRun(job.id, { status: 'success' })
+    assert.strictEqual(store.get(job.id).lastRunError, undefined, 'success must clear the error')
+  })
+
+  it('touch mutates volatile fields without persisting', () => {
+    const job = store.create({
+      name: 'Touch',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    assert.strictEqual(store.touch(job.id, { nextRunAt: 12345 }), true)
+    assert.strictEqual(store.get(job.id).nextRunAt, 12345)
+    // not persisted: a fresh store reload does not have it
+    const store2 = new CronJobStore({ path: store.path })
+    assert.strictEqual(store2.get(job.id).nextRunAt, undefined, 'touch must not persist')
+    assert.strictEqual(store.touch('nonexistent', {}), false)
+  })
 })

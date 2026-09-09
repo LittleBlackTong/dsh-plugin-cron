@@ -85,4 +85,16 @@ describe('routes registration (C1 regression)', () => {
     assert.strictEqual(matchPathname('/api/cron/events').kind, 'exact')
     assert.strictEqual(matchPathname('/api/other').matched, false)
   })
+
+  it('registers the sessions route (for fixed-session dropdown)', () => {
+    const table = routeTable()
+    assert.ok(table.some(r => r.kind === 'exact' && r.path === '/api/cron/sessions'),
+      'must register GET /api/cron/sessions')
+  })
+
+  it('/api/cron/jobs/<id>/run (manual trigger) matches the prefix route', () => {
+    const result = matchPathname('/api/cron/jobs/550e8400-e29b-41d4-a716-446655440000/run')
+    assert.strictEqual(result.matched, true)
+    assert.strictEqual(result.kind, 'prefix')
+  })
 })

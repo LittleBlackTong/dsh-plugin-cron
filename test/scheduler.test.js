@@ -40,6 +40,25 @@ function makeStore(initialJobs = []) {
       for (const cb of watchers) { try { cb(jobs) } catch { /* best-effort */ } }
       return { ...jobs[idx] }
     },
+    // v0.2: volatile in-memory mutation (no persist, no watch) — mirrors store.touch
+    touch(id, fields) {
+      const idx = jobs.findIndex(j => j.id === id)
+      if (idx === -1) return false
+      jobs[idx] = { ...jobs[idx], ...fields }
+      return true
+    },
+    // v0.2: run tracking (persist + notify in real store; here notify only)
+    recordRun(id, outcome) {
+      const idx = jobs.findIndex(j => j.id === id)
+      if (idx === -1) return false
+      const job = jobs[idx]
+      job.lastRunAt = Date.now()
+      job.lastRunStatus = outcome.status
+      job.lastRunError = outcome.status === 'failed' ? (outcome.error ?? 'unknown error') : undefined
+      if (outcome.status === 'success') job.runCount = (job.runCount ?? 0) + 1
+      for (const cb of watchers) { try { cb(jobs) } catch { /* best-effort */ } }
+      return true
+    },
     watch(cb) { watchers.add(cb); return () => watchers.delete(cb) },
   }
 }
@@ -128,5 +147,27 @@ describe('CronScheduler timer lifecycle (C2 regression)', () => {
     await scheduler.fire(store.get('job-1'))
     assert.strictEqual(scheduler.timers.size, 0, 'firing a disabled job must NOT re-arm')
     scheduler.stop()
+  })
+
+  it('runNow triggers a job immediately and records success', async () => {
+    const store = makeStore([makeJob()])
+    const ctx = makeCtx(store)
+    const scheduler = new CronScheduler({ store, ctx })
+    scheduler.start()
+
+    assert.strictEqual(scheduler.runNow('job-1'), true)
+    // fire is async; wait for the delivery path to settle
+    await new Promise((r) => setTimeout(r, 0))
+    const job = store.get('job-1')
+    assert.strictEqual(job.lastRunStatus, 'success', 'runNow must deliver and record success')
+    assert.strictEqual(job.runCount, 1)
+    scheduler.stop()
+  })
+
+  it('runNow returns false for a missing job', () => {
+    const store = makeStore([])
+    const ctx = makeCtx(store)
+    const scheduler = new CronScheduler({ store, ctx })
+    assert.strictEqual(scheduler.runNow('nonexistent'), false)
   })
 })

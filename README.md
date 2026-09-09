@@ -1,20 +1,21 @@
 # dsh-plugin-cron
 
-> A cron job manager for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): schedule full agent turns on cron expressions — created from natural language conversation or a settings UI.
+> A cron scheduler plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): schedule agent tasks on a cron expression — via natural language or a sidebar UI — and each job injects a user message into a target session at the right time, triggering a full agent turn.
 
-DeepSeek Harness 的「定时任务」插件：把一条 cron 表达式 + 一段 prompt 存成持久化任务，到点自动向目标会话注入 user message，触发 agent 跑一个**完整 turn**（调工具、写文件、拉数据……想干嘛干嘛）。任务可以用对话一句话创建，也可以在设置面板里可视化增删改。
+DeepSeek Harness 的「定时任务」插件：按 cron 表达式给 agent 排班——到点往目标会话注入一条 user 消息，触发完整一轮 agent 执行（调工具、写文件、拉数据、生成报告，什么都行）。创建方式双通道：对话里自然语言说一句，或侧边栏底部「定时任务」列表里点「新建」。
 
-## 功能特性
+## 怎么工作
 
-- **双通道管理**：对话自然语言创建为主（`cron_manage` Tool），设置面板 UI 编辑/微调为辅，两条通道实时互相同步。
-- **完整 agent turn**：任务 = 一条 user prompt，到点注入目标会话，agent 全流程执行（`source.kind: 'plugin'`），不绕过 agent 直接跑。
-- **混合会话策略（v0.1）**：每个任务可选
-  - `new` — 每次触发**新建**会话（适合一次性/幂等任务，互不污染）；
-  - `fixed` — 每次都投进**同一个固定会话**（适合有上下文的延续性任务，如「每天在这个会话里汇报」）。固定会话不存在时自动创建并回写 `fixedSessionId`。
-- **零依赖 cron 解析**：自实现 5 字段解析器，无第三方库；支持单值、范围、步进、列表、通配符。
-- **SSE 实时同步**：UI 通过 `/api/cron/events` 的 `jobs-changed` 事件实时刷新，任何通道的改动立即可见。
-- **错过跳过（missed-skip）**：DSH 不是常驻服务——进程关闭期间的 tick 一律跳过、不补跑（v0.2.0 预留 `catchUp` 补跑）。
-- **并发保护**：同一任务上一次触发还在执行时，新 tick 跳过并记 `skippedAt`，绝不重复执行。
+- **Host 平面**：持久化 JSON store（`<dshHome>/cron-jobs.json`，原子写）+ 每任务一条 `ctx.timer` 定时链 + 到点 `agent.followup()` 注入合成 user 消息（`source.kind === 'plugin'`）。
+- **会话策略**：
+  - `new`（默认）：每次触发开一个新会话，干净隔离；
+  - `fixed`：绑定指定会话，累积上下文。绑定会话时是**下拉选择**（列出所有存活会话的标题），不用手填 session id。
+- **错过不补跑**：DSH 不是常驻服务，进程关闭期间的 tick 直接跳过，重启后从当前时间往后算，绝不开机风暴。
+- **并发保护**：同一任务上一次触发还没结束，新 tick 跳过并记 `skippedAt`，不重复执行。
+- **执行历史（v0.2.0）**：每次触发记录 `lastRunStatus`（成功/失败/跳过）+ 错误信息 + `runCount`，侧边栏列表里直接看到「上次: 成功 2026-09-09 10:30」，失败还会显示错误摘要。
+- **手动触发（v0.2.0）**：列表里「跑」按钮或对话里 `cron_manage run` 立即执行一次，不改变既定排班。
+- **双通道创建**：`cron_manage` 工具（对话自然语言）+ 侧边栏 UI（表单），共享同一套 Host CRUD。
+- **UI 位置**：注册到侧边栏底部（`sidebar.footer.action`，新 id `cron-hotplug`），与 Cordis Plugin 面板并列，**不覆盖、不替换**它。任务多时列表在容器内滚动，不会撑爆侧栏。
 
 ## 安装
 
@@ -22,118 +23,64 @@ DeepSeek Harness 的「定时任务」插件：把一条 cron 表达式 + 一段
 dsh plugin --profile <profile> add dsh-plugin-cron
 ```
 
-（包内置 `dsh.bundle` manifest，`dsh plugin add` 会把 `cordis.patch.yml` 自动挂进 profile 的 bundles 层。）
+（包内置 `dsh.bundle` manifest，`dsh plugin add` 自动挂进 profile 的 bundles 层；dsh-market 里的一键安装同此通道。）
 
-或者手动在 profile 的 `cordis.patch.yml` 加一行：
+重启 DSH 后生效。之后在侧边栏底部「定时任务」列表里管理任务，保存即生效（无需重启）。
 
-```yaml
-- insert:
-    - id: dsh-cron
-      name: dsh-plugin-cron
-```
+> ⚠️ **不要**再往 profile 的 `cordis.patch.yml` 里手写 `- insert: {id: dsh-cron, ...}`：
+> 那会与 bundle manifest 的自动挂载产生两条同名 entry，整个 profile 会以
+> `duplicate loader entry id "dsh-cron"` 启动失败。运行期任务数据走
+> `<dshHome>/cron-jobs.json`；覆盖 composition 键（如 `configFile`）用**不带 insert 的
+> id 覆盖条目。
 
-重启 DSH 后生效。之后在 **设置 → ⏰ 定时任务** 面板里随时增删改任务，保存即热应用（无需重启）。
+## 对话用法（自然语言）
 
-## 快速开始
+> 阿周：每周一 10:30 帮我导出上一周的 ZDP 数据
+> 小蓝：（调用 cron_manage 工具）已创建「每周导出ZDP上周数据」，下次执行：下周一 10:30
 
-创建任务的 cron 表达式必须填 **5 个字段**（分 时 日 月 周）。示例：每天 10:00 执行。
+支持的 `cron_manage` action：`create` / `list` / `update` / `delete` / `toggle` / `run`。
 
-```sh
-0 10 * * *
-```
-
-### 对话示例（自然语言）
-
-直接跟 agent 说，它会自动解析并调用 `cron_manage` Tool：
-
-- **创建**
-  > 每天早上 10 点帮我检查一次今天的日程，整理成清单发我。
-  - 解析：`schedule: "0 10 * * *"`、`prompt: "检查今天的日程，整理成清单发我。"`、`sessionStrategy: "new"`
-- **查看**
-  > 列出我所有的定时任务。
-  - 调用 `cron_manage` action=list，返回全部任务。
-- **修改**
-  > 把「日程检查」改成每天晚上 9 点执行。
-  - 解析：`action: "update"` + 新 `schedule: "0 21 * * *"`。
-- **暂停 / 恢复**
-  > 先暂停「日程检查」这个任务。
-  - `action: "toggle"` + `enabled: false`；恢复同理 `enabled: true`。
-- **删除**
-  > 把「日程检查」删掉吧。
-  - `action: "delete"`，二次确认后删除。
-
-### UI 使用
-
-设置 → **⏰ 定时任务**：
-
-- **列表**：每行显示名称、cron 表达式、上次运行时间；开关直接切换启用/暂停。
-- **新建/编辑**：表单含名称、cron 表达式、指令（prompt）、会话策略（每次新建 / 固定会话 + 固定会话 ID）。
-- **删除**：点击删除弹确认框。
-- 任何改动（包括对话通道触发的）都通过 SSE `jobs-changed` 实时刷新到面板。
-
-> 截图占位：v0.1.0 发布后补 UI 截图。
-
-## Cron 表达式参考
-
-5 位标准表达式：`分 时 日 月 周`
+cron 表达式是标准 5 字段（分 时 日 月 周）：
 
 ```
-┌───────────── 分钟 (0-59)
-│ ┌───────────── 小时 (0-23)
-│ │ ┌───────────── 日 (1-31)
-│ │ │ ┌───────────── 月 (1-12)
-│ │ │ │ ┌───────────── 周几 (0-7, 0 和 7 都表示周日)
-│ │ │ │ │
 * * * * *
+│ │ │ │ └─ 周几 (0-7，0 和 7 = 周日)
+│ │ │ └─── 月 (1-12)
+│ │ └───── 日 (1-31)
+│ └─────── 时 (0-23)
+└───────── 分 (0-59)
 ```
 
-| 语法 | 含义 | 示例 |
-|---|---|---|
-| `*` | 通配，任意值 | `* * * * *` 每分钟 |
-| `1,3,5` | 列表 | `0 9,18 * * *` 每天 9:00 和 18:00 |
-| `1-5` | 范围 | `0 9 * * 1-5` 工作日 9:00 |
-| `*/5` | 步进 | `*/5 * * * *` 每 5 分钟 |
-| 组合 | 范围+步进 | `1-59/2 * * * *` 每 2 分钟（奇数分） |
+支持单值、范围（`1-5`）、步进（`*/5`）、列表（`1,3,5`）、通配（`*`）。例：
+
+| 表达式 | 含义 |
+|---|---|
+| `0 10 * * *` | 每天 10:00 |
+| `30 10 * * 1` | 每周一 10:30 |
+| `*/5 * * * *` | 每 5 分钟 |
+| `0 17 * * 5` | 每周五 17:00 |
 
 ## 配置
 
 | 键 | 默认 | 含义 |
 |---|---|---|
-| `configFile` | `<dshHome>/cron-jobs.json` | 任务存储文件路径（`DSH_HOME` 环境变量优先，否则 `~/.dsh`） |
+| `configFile` | `<dshHome>/cron-jobs.json` | 任务数据文件路径（仅 composition 配置） |
+
+> 为什么不用 settings 面板的通用 namespace？DSH 的 settings wire 只服务一张
+> 硬编码白名单（`WEB_SETTINGS_NAMESPACES`），插件无法把自有 namespace 暴露给
+> 浏览器写入。本插件因此在 host 自建了 `/api/cron/*` 路由，侧边栏 UI 直连该路由。
 
 ## HTTP API
 
-所有接口挂 `webServer`（无 `webServer` 的 headless 部署自动跳过）。
-
-| 方法 | 路径 | 说明 |
+| Method | Path | 说明 |
 |---|---|---|
-| `GET` | `/api/cron/jobs` | 列出全部任务 `{ jobs: [...] }` |
-| `POST` | `/api/cron/jobs` | 创建任务，body 为 job 字段，成功返回 `201 { job }` |
-| `PUT` | `/api/cron/jobs/:id` | 更新任务，body 为部分字段 patch，成功返回 `200 { job }` |
-| `DELETE` | `/api/cron/jobs/:id` | 删除任务，成功 `200 { deleted: true }`，不存在 `404` |
-| `GET` | `/api/cron/events` | SSE 推送 `jobs-changed` 事件（store 每次持久化后广播） |
-
-错误统一返回 `{ error: string }`；校验失败 `400`，找不到任务 `404`，方法不支持 `405`。
-
-### 数据模型
-
-```js
-{
-  id: string,              // UUID v4
-  name: string,            // 人类可读名称
-  schedule: string,        // 5 位标准 cron 表达式 "0 10 * * *"
-  prompt: string,          // 注入给 agent 的完整 user message
-  sessionStrategy: 'new' | 'fixed',
-  fixedSessionId?: string, // strategy=fixed 时必填
-  enabled: boolean,        // 开关
-  createdAt: number,       // epoch ms
-  lastRunAt?: number,      // 上次触发时间
-  nextRunAt?: number,      // 下次预计触发时间
-  skippedAt?: number,      // 上次因并发保护被跳过的时间
-}
-```
-
-存储为 `<dshHome>/cron-jobs.json`（JSON 数组，原子写入：先写 `.tmp` 再 rename）。
+| GET | `/api/cron/jobs` | 列出全部任务 |
+| POST | `/api/cron/jobs` | 新建任务 |
+| PUT | `/api/cron/jobs/:id` | 更新任务 |
+| DELETE | `/api/cron/jobs/:id` | 删除任务 |
+| POST | `/api/cron/jobs/:id/run` | 立即运行一次 |
+| GET | `/api/cron/sessions` | 列出存活会话（固定会话下拉用） |
+| GET | `/api/cron/events` | SSE 推送 `jobs-changed` |
 
 ## 开发
 
@@ -143,10 +90,10 @@ node --test 'test/*.test.js'
 
 ## 已知边界
 
-- 定时器只在 DSH 进程活着时存在（app 关了就停），错过期间不补跑。
-- 固定会话策略依赖 `ctx.sessions.get()` 能查到目标会话；查不到时自动新建会话并回写任务。
-- 并发保护是「跳过不排队」：上一次执行未结束时，新 tick 记 `skippedAt` 并顺延，不做队列堆积。
-- 与 dsh-plugin-memory / dsh-plugin-heartbeat 互相独立、零依赖。
+- 任务只在 DSH 进程活着时存在（app 关了就停，错过不补跑）。
+- `nextRunAt` / `skippedAt` 是易失字段（进程内），重启后按当前时间重新计算。
+- 固定会话若绑定了一个已不存在的会话，触发时会自动新建并回写 `fixedSessionId`。
+- 到点触发需要目标 session 能启动 agent（有 agent 工厂 + 持久化后端）；无可用 agent 时记为「失败」并记录原因，不会崩溃。
 
 ## License
 
