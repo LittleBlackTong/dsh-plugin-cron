@@ -2,6 +2,15 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.1] - 2026-09-09
+
+### Fixed
+
+- **启动失败修复**：`inject` 数组补齐 `'timer'`——`scheduler.js` 使用 `ctx.timer` 但此前未声明硬依赖，导致插件加载时 `cannot get property "timer" without inject`、整个 plugin tree 加载失败、DSH 启动失败。
+- **UI 主题自适应**：按钮改用语义主题变量（`--dsw-alias-button-primary-fill` 背景 + `--dsw-alias-label-primary-inverted` 反色文字），文字改用 `--dsw-alias-label-primary/secondary`，开关随主题翻转——浅色主题黑字、深色主题浅字，修复「全白看不清」与「蓝色突兀」。
+- **「立即运行」按钮**：改用主按钮样式（背景+反色文字），避免绿色底上文字看不清；并从任务行移入编辑弹窗。
+- **列表留白**：定时任务列表底部加间距，不再紧贴侧边栏设置。
+
 ## [0.2.0] - 2026-09-09
 
 ### Added
