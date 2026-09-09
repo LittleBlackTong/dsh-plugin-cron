@@ -1,4 +1,4 @@
-# dsh-plugin-cron
+# dsh-plugin-cron-scheduler
 
 > A cron scheduler plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): schedule agent tasks on a cron expression — via natural language or a sidebar UI — and each job injects a user message into a target session at the right time, triggering a full agent turn.
 
@@ -20,7 +20,7 @@ DeepSeek Harness 的「定时任务」插件：按 cron 表达式给 agent 排�
 ## 安装
 
 ```sh
-dsh plugin --profile <profile> add dsh-plugin-cron
+dsh plugin --profile <profile> add dsh-plugin-cron-scheduler
 ```
 
 （包内置 `dsh.bundle` manifest，`dsh plugin add` 自动挂进 profile 的 bundles 层；dsh-market 里的一键安装同此通道。）

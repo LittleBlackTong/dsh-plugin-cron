@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-cron",
+  "name": "dsh-plugin-cron-scheduler",
   "description": "Cron scheduler plugin for DeepSeek Harness: schedule agent tasks via natural language or a sidebar UI, with fixed/new session strategies, run history, manual trigger, and live sync.",
   "version": "0.2.0",
   "license": "MIT",
