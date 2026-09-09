@@ -176,4 +176,24 @@ describe('CronJobStore', () => {
     assert.strictEqual(updated.name, 'Renamed')
     assert.strictEqual(updated.enabled, false)
   })
+
+  it('never lets a patch override immutable id/createdAt fields', () => {
+    const job = store.create({
+      name: 'Immutable',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    const originalId = job.id
+    const originalCreatedAt = job.createdAt
+    const updated = store.update(job.id, { id: 'hacked', createdAt: 0, name: 'Still Updated' })
+    assert.strictEqual(updated.id, originalId)
+    assert.strictEqual(updated.createdAt, originalCreatedAt)
+    assert.strictEqual(updated.name, 'Still Updated') // mutable fields still apply
+    // and the store's internal record is untouched too
+    assert.strictEqual(store.get(job.id).id, originalId)
+    assert.strictEqual(store.get(job.id).createdAt, originalCreatedAt)
+    assert.strictEqual(store.list().some(j => j.id === 'hacked'), false)
+  })
 })
