@@ -274,4 +274,36 @@ describe('CronJobStore', () => {
     assert.strictEqual(store2.get(job.id).nextRunAt, undefined, 'touch must not persist')
     assert.strictEqual(store.touch('nonexistent', {}), false)
   })
+
+  it('never returns undefined-valued keys (tool results must be lossless JSON)', () => {
+    const job = store.create({
+      name: 'Clean',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'new',
+      enabled: true,
+    })
+    const hasUndefined = (o) => Object.values(o).some((v) => v === undefined)
+    assert.ok(!hasUndefined(job), 'create() must omit unset optional keys')
+    assert.ok(!('fixedSessionId' in job), 'sessionStrategy=new carries no fixedSessionId key')
+    assert.ok(!hasUndefined(store.get(job.id)), 'get() must omit them too')
+    assert.ok(!store.list().some(hasUndefined), 'list() must omit them too')
+    // The harness serializes tool results as lossless JSON, which rejects a
+    // top-level `undefined`; a JSON round-trip is the actual contract.
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(job)), job)
+
+    // Switching a fixed job back to "new" must DROP the key, not set it undefined.
+    const fixed = store.create({
+      name: 'Fixed',
+      schedule: '0 10 * * *',
+      prompt: 'Test',
+      sessionStrategy: 'fixed',
+      fixedSessionId: 'session-abc',
+      enabled: true,
+    })
+    assert.strictEqual(fixed.fixedSessionId, 'session-abc')
+    const switched = store.update(fixed.id, { sessionStrategy: 'new' })
+    assert.ok(!('fixedSessionId' in switched), 'update() drops fixedSessionId when switching to new')
+    assert.ok(!hasUndefined(switched))
+  })
 })
