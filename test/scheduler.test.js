@@ -255,4 +255,41 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
     await scheduler.fire(store.get('job-1'))
     assert.strictEqual(store.get('job-1').lastRunStatus, 'success')
   })
+
+  it('setup survives a context whose scoped .agent access throws (inject guard)', async () => {
+    const store = makeStore([makeJob()])
+    const captured = {}
+    const ctx = {
+      timer: { timeout: () => () => {} },
+      agents: {
+        get: () => undefined,
+        resume: async () => { throw new Error('no persisted session') },
+        create: async (options) => {
+          const listeners = new Map()
+          const agentCtx = {
+            // Cordis throws on a scoped service the context does not inject.
+            get agent() { throw new Error('cannot get property "agent" without inject') },
+            get: () => undefined,
+            on(event, cb) { listeners.set(event, cb); return () => listeners.delete(event) },
+          }
+          options.setup?.(agentCtx)
+          captured.listeners = listeners
+          return { agent: { followup() {}, session: { seq: 0, events: [] }, whenIdle: async () => {} } }
+        },
+      },
+      sessions: { get: () => undefined },
+      get: (name) => name === 'agentDefaultModel'
+        ? { currentSelection: () => ({ provider: 'p', model: 'm' }) }
+        : undefined,
+      logger: { info() {}, warn() {}, error() {} },
+    }
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1')) // must not throw
+
+    const assemble = captured.listeners.get('system-prompt/assemble')
+    assert.strictEqual(typeof assemble, 'function', 'setup must still install the hook')
+    const assembled = await assemble({}, {}, async () => ({ variables: {} }))
+    assert.strictEqual(assembled.variables.model, 'm', 'fallback selection must still be installed')
+    assert.strictEqual(store.get('job-1').lastRunStatus, 'success')
+  })
 })
