@@ -67,10 +67,15 @@ cron 表达式是标准 5 字段（分 时 日 月 周）：
 | `configFile` | `<dshHome>/cron-jobs.json` | 任务数据文件路径（仅 composition 配置） |
 | `cwd` | `process.cwd()` | `new` 策略新建会话的工作目录 |
 
-> ⚠️ 新建会话（`new` 策略）必须同时具备**模型选择**与 **cwd**，否则 agent 第一轮
-> 会在提示词组装阶段失败——persona 段引用的 `{{model}}`（来自模型选择）与
-> `{{cwd}}`（来自 `session.header.cwd`）任一取不到值，整轮直接报错。插件会自动从
-> `agentDefaultModel` 取默认模型并装钩子、始终带上 `cwd`（不配则用 `process.cwd()`）。
+> ⚠️ 新建会话（`new` 策略）必须补齐**三样**，否则那个 agent 一定是残的：
+>
+> | 缺什么 | 后果 |
+> |---|---|
+> | **agent preset**（`agentPresets.mount`） | 工具集退化成空的全局层——只剩全局注册的工具，没有 shell/read 等标准工具 |
+> | **模型选择**（`agentDefaultModel` + 装钩子） | persona 段的 `{{model}}` 取不到值，第一轮直接报错 |
+> | **cwd**（`meta.cwd`） | persona 段的 `{{cwd}}` 取不到值，第一轮直接报错 |
+>
+> 插件会自动补齐这三样（默认 preset / 默认模型 / `cwd` 不配则用 `process.cwd()`）。
 
 > 为什么不用 settings 面板的通用 namespace？DSH 的 settings wire 只服务一张
 > 硬编码白名单（`WEB_SETTINGS_NAMESPACES`），插件无法把自有 namespace 暴露给

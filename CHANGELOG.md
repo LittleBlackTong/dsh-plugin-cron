@@ -2,6 +2,17 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.6] - 2026-09-11
+
+### Fixed
+
+- **新建会话没有 agent preset → 工具集退化成空（第三块拼图）**：`{{model}}`/`{{cwd}}` 修好后 turn 终于能跑了，但 agent 反馈「这一轮只有 `cron_manage`，没有 shell/read 工具」。原因是 cron 建出来的 agent **从未 join 过 deployment 的 agent preset**，而 `dsh-agent-presets` 对此有明确警告：*an agent published without joining an agent preset … its tools, prompt sections, and skill catalog resolve against the empty global layer*。于是它只看得见全局注册的工具（`cron_manage` 恰好是），标准工具全没了。
+  修复：`setup` 里调用 **`agentPresets.mount(agentCtx, defaultId)`** 让新建/恢复的 agent 加入默认 preset；同时把 **`meta.agentPreset: defaultId`** 记进会话 header，保证列表/摘要解析与恢复时用的是同一个组合。无 preset 名册的部署会跳过（其 model-facing 行本就在 host 组合里，不需要 join）。
+
+### Tests
+
+- 新增回归：`setup` 会 mount 默认 preset、`meta.agentPreset` 落到 header（**54/54 通过**）。
+
 ## [0.2.5] - 2026-09-11
 
 ### Fixed
