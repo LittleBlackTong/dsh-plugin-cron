@@ -171,3 +171,88 @@ describe('CronScheduler timer lifecycle (C2 regression)', () => {
     assert.strictEqual(scheduler.runNow('nonexistent'), false)
   })
 })
+
+describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)', () => {
+  /** ctx whose create() actually RUNS the setup hook and exposes its listeners. */
+  function makeSetupCtx() {
+    const captured = {}
+    const ctx = {
+      timer: { timeout: () => () => {} },
+      agents: {
+        get: () => undefined, // no live agent -> resume/create path
+        resume: async () => { throw new Error('no persisted session') },
+        create: async (options) => {
+          const listeners = new Map()
+          const agent = { followup() {}, session: { seq: 0, events: [] }, whenIdle: async () => {} }
+          options.setup?.({
+            agent,
+            on(event, cb) { listeners.set(event, cb); return () => listeners.delete(event) },
+          })
+          captured.options = options
+          captured.listeners = listeners
+          captured.agent = agent
+          return { agent }
+        },
+      },
+      sessions: { get: () => undefined },
+      get: (name) => name === 'agentDefaultModel'
+        ? { currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-flash' }) }
+        : undefined,
+      logger: { info() {}, warn() {}, error() {} },
+    }
+    return { ctx, captured }
+  }
+
+  it('creates a fresh session with cwd + model options and installs the assemble hook', async () => {
+    const store = makeStore([makeJob()])
+    const { ctx, captured } = makeSetupCtx()
+    const scheduler = new CronScheduler({ store, ctx, cwd: '/tmp/ws' })
+    await scheduler.fire(store.get('job-1'))
+
+    assert.deepStrictEqual(captured.options.meta, { cwd: '/tmp/ws' }, 'create() must pin the workspace cwd')
+    assert.deepStrictEqual(captured.options.agentOptions, { provider: 'deepseek-official', model: 'deepseek-flash' })
+
+    const assemble = captured.listeners.get('system-prompt/assemble')
+    assert.strictEqual(typeof assemble, 'function', 'setup must install a model-selection assemble hook')
+    const assembled = await assemble({}, {}, async () => ({ variables: {} }))
+    assert.strictEqual(assembled.variables.model, 'deepseek-flash', '{{model}} must resolve')
+    assert.strictEqual(assembled.variables.provider, 'deepseek-official')
+  })
+
+  it('records a failed run when the delivered turn ends in an error', async () => {
+    const store = makeStore([makeJob()])
+    const ctx = makeCtx(store)
+    ctx.agents.get = () => ({
+      followup() {},
+      session: {
+        seq: 0,
+        events: [{
+          seq: 1,
+          type: 'turn/end',
+          data: { reason: { kind: 'error', error: { message: 'prompt variable "{{model}}" has no value' } } },
+        }],
+      },
+      whenIdle: async () => {},
+    })
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+
+    const job = store.get('job-1')
+    assert.strictEqual(job.lastRunStatus, 'failed', 'a failed turn must not be recorded as success')
+    assert.match(job.lastRunError, /\{\{model\}\}/)
+    assert.strictEqual(job.runCount ?? 0, 0, 'a failed run must not increment runCount')
+  })
+
+  it('records success when the delivered turn completes', async () => {
+    const store = makeStore([makeJob()])
+    const ctx = makeCtx(store)
+    ctx.agents.get = () => ({
+      followup() {},
+      session: { seq: 0, events: [{ seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } }] },
+      whenIdle: async () => {},
+    })
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+    assert.strictEqual(store.get('job-1').lastRunStatus, 'success')
+  })
+})
