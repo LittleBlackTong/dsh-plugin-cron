@@ -183,7 +183,11 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
         resume: async () => { throw new Error('no persisted session') },
         create: async (options) => {
           const listeners = new Map()
-          const agent = { followup() {}, session: { seq: 0, events: [] }, whenIdle: async () => {} }
+          // A completed turn so the outcome poll settles immediately.
+          const agent = {
+            followup() {},
+            session: { seq: 0, events: [{ seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } }] },
+          }
           options.setup?.({
             agent,
             on(event, cb) { listeners.set(event, cb); return () => listeners.delete(event) },
@@ -274,7 +278,12 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
           }
           options.setup?.(agentCtx)
           captured.listeners = listeners
-          return { agent: { followup() {}, session: { seq: 0, events: [] }, whenIdle: async () => {} } }
+          return {
+            agent: {
+              followup() {},
+              session: { seq: 0, events: [{ seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } }] },
+            },
+          }
         },
       },
       sessions: { get: () => undefined },
@@ -291,5 +300,34 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
     const assembled = await assemble({}, {}, async () => ({ variables: {} }))
     assert.strictEqual(assembled.variables.model, 'm', 'fallback selection must still be installed')
     assert.strictEqual(store.get('job-1').lastRunStatus, 'success')
+  })
+
+  it('always pins a cwd even when none is configured ({{cwd}} must resolve)', async () => {
+    const store = makeStore([makeJob()])
+    const { ctx, captured } = makeSetupCtx()
+    const scheduler = new CronScheduler({ store, ctx }) // no cwd configured
+    await scheduler.fire(store.get('job-1'))
+    assert.strictEqual(typeof captured.options.meta?.cwd, 'string', 'create() must always carry meta.cwd')
+    assert.ok(captured.options.meta.cwd.length > 0)
+  })
+
+  it('waits for a turn/end that lands after the followup (no early green)', async () => {
+    const store = makeStore([makeJob()])
+    const ctx = makeCtx(store)
+    const events = []
+    ctx.agents.get = () => ({
+      followup() {
+        // The turn only settles a beat later, after the first poll.
+        setTimeout(() => {
+          events.push({ seq: 1, type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'late boom' } } } })
+        }, 30)
+      },
+      session: { seq: 0, events },
+    })
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+    const job = store.get('job-1')
+    assert.strictEqual(job.lastRunStatus, 'failed', 'a late failure must still be recorded')
+    assert.match(job.lastRunError, /late boom/)
   })
 })
