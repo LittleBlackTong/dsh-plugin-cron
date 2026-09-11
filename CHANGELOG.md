@@ -2,6 +2,17 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.5] - 2026-09-11
+
+### Fixed
+
+- **`{{cwd}}` 取不到值（0.2.3/0.2.4 之后暴露的第二个提示词变量）**：修好 `{{model}}` 后下一轮又挂在 `prompt variable "{{cwd}}" has no value`。原因是 `{{cwd}}` 由 harness 的 `systemPrompt.variable('cwd', ctx => ctx.agent?.session.header.cwd)` 提供，而新会话此前**根本没带 cwd**（落 `_no-cwd`）。现在 `create` **始终**带 `meta.cwd`：未配置时回退 `process.cwd()`，不再允许「无工作目录」的会话。
+- **`success` 误报的竞态**：`agent.followup()` 之后 wake 尚未注册成 activity，`agent.whenIdle()` 会**立刻返回**，于是在 turn 真正开始前就记了 `success`（实测：turn 在 28ms 后报错，仍被记成 success）。改为**轮询 `session.events` 里 firstSeq 之后的 `turn/end`**（250ms 一次，15min 上限）——直接看真实结局，不再依赖 `whenIdle`。会话没有事件列表时按「不可观测」处理，不阻塞任务。
+
+### Tests
+
+- 新增 2 条回归：未配置 `cwd` 时 `create()` 仍必带 `meta.cwd`；`turn/end` 延迟到达时仍记为 `failed`（**53/53 通过**）。
+
 ## [0.2.4] - 2026-09-11
 
 ### Fixed
