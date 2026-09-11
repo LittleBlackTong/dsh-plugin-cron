@@ -2,6 +2,17 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.4] - 2026-09-11
+
+### Fixed
+
+- **0.2.3 引入的 `cannot get property "agent" without inject`**：0.2.3 在 `setup` 里读 `agentCtx.agent` 来取会话已记录的模型；但 Agent 的 scoped context 没有声明 `inject: ['agent']`，Cordis 对未注入的 scoped 服务**直接抛错**，导致每次新建会话都失败。现在改为动态取（`agentCtx.get('agent')` + try/catch），取不到就退回默认模型——**插件无法给 Agent 自己的 scope 补 inject**。
+- 拿不到默认模型选择时打印警告（原来会静默走到「没有 `{{model}}` → 组装失败」）。
+
+### Tests
+
+- 新增回归：`agentCtx.agent` 抛 inject 错的场景下 `setup` 不炸、仍装上钩子并用默认选择（**51/51 通过**）。
+
 ## [0.2.3] - 2026-09-11
 
 ### Fixed
