@@ -2,6 +2,21 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.3] - 2026-09-11
+
+### Fixed
+
+- **新建任务的会话「裸奔」导致第一轮必挂（关键修复）**：`new` 策略新建的会话此前只调用 `agents.create({ sessionId })`，**不带模型选择、不带工作目录**。于是系统提示词里 persona 段引用的 `{{model}}` 取不到值，agent 第一轮直接抛 `prompt variable "{{model}}" has no value for this assembly`，**任务永远跑不起来**（而插件把它记成 success，见下一条）。现在 `create`/`resume` 补上：
+  - `meta.cwd` —— 让新会话落在真实工作区（不再 `_no-cwd`）；
+  - `agentOptions: { provider, model }` —— 用 `agentDefaultModel` 的默认选择；
+  - `setup` —— 装一个模型选择器（等价 `@deepseek-ai/dsh-agent` 的 `installModelSelection`：`system-prompt/assemble` 注入 `{{provider}}`/`{{model}}`，`agent/request` 固定请求上的 provider/model）。会话已有记录时优先用它自己的模型，否则用默认值。
+- **成败误报**：投递成功不等于执行成功——此前只要消息进 inbox 就记 `success`，turn 挂了也显示绿色。现在投递后会等这一轮结算（上限 15 分钟），按 `turn/end` 的真实结局记录：turn 报错 → `failed` + 错误摘要；超时未结算 → `failed`。
+- 新增配置 `cwd`：新建会话的工作目录（不填则由宿主 cwd 决定）。
+
+### Tests
+
+- 新增 3 条回归：新建会话带上 `cwd`+模型选项并装上 assemble 钩子（`{{model}}` 能解析）、turn 报错记 `failed`、turn 正常记 `success`（**50/50 通过**）。
+
 ## [0.2.2] - 2026-09-11
 
 ### Fixed

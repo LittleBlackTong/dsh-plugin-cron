@@ -65,6 +65,11 @@ cron 表达式是标准 5 字段（分 时 日 月 周）：
 | 键 | 默认 | 含义 |
 |---|---|---|
 | `configFile` | `<dshHome>/cron-jobs.json` | 任务数据文件路径（仅 composition 配置） |
+| `cwd` | 宿主 cwd | `new` 策略新建会话的工作目录 |
+
+> ⚠️ 新建会话（`new` 策略）必须带模型选择，否则 agent 第一轮会因提示词变量
+> `{{model}}` 取不到值而失败。插件会自动从 `agentDefaultModel` 取默认模型并装上
+> 对应钩子；`cwd` 决定新会话落在哪个工作区。
 
 > 为什么不用 settings 面板的通用 namespace？DSH 的 settings wire 只服务一张
 > 硬编码白名单（`WEB_SETTINGS_NAMESPACES`），插件无法把自有 namespace 暴露给
