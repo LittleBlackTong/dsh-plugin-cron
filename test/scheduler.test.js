@@ -330,4 +330,19 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
     assert.strictEqual(job.lastRunStatus, 'failed', 'a late failure must still be recorded')
     assert.match(job.lastRunError, /late boom/)
   })
+
+  it('joins the deployment preset so the agent gets the standard tools', async () => {
+    const store = makeStore([makeJob()])
+    const mounted = []
+    const { ctx, captured } = makeSetupCtx()
+    const baseGet = ctx.get
+    ctx.get = (name) => name === 'agentPresets'
+      ? { defaultId: 'standard', mount: async (agentCtx, id) => { mounted.push(id); return { id } } }
+      : baseGet(name)
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+
+    assert.deepStrictEqual(mounted, ['standard'], 'setup must mount the default preset')
+    assert.strictEqual(captured.options.meta.agentPreset, 'standard', 'the header must record the preset')
+  })
 })
