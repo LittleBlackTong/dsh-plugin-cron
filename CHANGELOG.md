@@ -2,6 +2,17 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.2] - 2026-09-11
+
+### Fixed
+
+- **`cron_manage` 工具「假报错」修复**：`create` / `list` / `update` / `toggle` 返回的 job 对象此前带着 `fixedSessionId` / `lastRunAt` / `lastRunStatus` / `lastRunError` 等 `undefined` 值字段，触发宿主对工具结果的 lossless-JSON 校验（`value is not lossless JSON`）→ **工具调用报错，但副作用其实已经成功**（任务真的建了/改了）。现在 `create` / `get` / `list` / `update` 返回前统一剥掉 `undefined` 字段；固定会话切回 `new` 时 `fixedSessionId` 直接删键，而不是置 `undefined`。
+- 影响面：只要列表里存在任一「未设置可选字段」的任务，`cron_manage list` 就会整体报错——创建任务后整个工具都不可用。
+
+### Tests
+
+- 新增回归测试：job 返回对象不含 `undefined` 值键、JSON round-trip 恒等、会话策略切换删键（**47/47 通过**）。
+
 ## [0.2.1] - 2026-09-09
 
 ### Fixed
