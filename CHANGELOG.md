@@ -2,6 +2,13 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.7] - 2026-09-11
+
+### Fixed
+
+- **固定会话下拉选不到之前绑定的会话**：下拉此前只列 `ctx.sessions.list()`（内存中**存活**的 live session），DSH 重启后持久化但未点开的会话不在内存里 → 之前绑定的固定会话从下拉消失，归档操作触发重新加载后才又出现。现在下拉合并两个来源并去重：live sessions + **所有 job 已绑定的 `fixedSessionId`**（非 live 的以「`xxx…（已绑定）`」标注），保证之前设过的固定会话永远可选。
+- 新增 4 个回归测试（live 列出 / 绑定但非 live 仍列出 / 去重 / 非 fixed 策略忽略）。
+
 ## [0.2.6] - 2026-09-11
 
 ### Fixed
