@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { getRouteTable } from '../lib/routes.js'
+import { getRouteTable, listSessionChoices } from '../lib/routes.js'
 
 /**
  * Route-match regression test for FINDING C1.
@@ -96,5 +96,52 @@ describe('routes registration (C1 regression)', () => {
     const result = matchPathname('/api/cron/jobs/550e8400-e29b-41d4-a716-446655440000/run')
     assert.strictEqual(result.matched, true)
     assert.strictEqual(result.kind, 'prefix')
+  })
+})
+
+describe('listSessionChoices (fixed-session dropdown)', () => {
+  // listSessionChoices(ctx, store) merges live sessions with any
+  // fixedSessionId already bound by jobs, so a previously-bound session
+  // stays selectable even after a restart (persisted but no longer live).
+
+  function makeCtx(liveSessions = []) {
+    return {
+      get(name) {
+        if (name === 'sessions') return { list: () => liveSessions }
+        if (name === 'sessionTitle') return { get: () => undefined }
+        return undefined
+      },
+    }
+  }
+  function makeStore(jobs = []) {
+    return { list: () => jobs.map(j => ({ ...j })) }
+  }
+
+  it('lists live sessions', () => {
+    const ctx = makeCtx([{ id: 'live-1', header: { createdAt: Date.now() } }])
+    const choices = listSessionChoices(ctx, makeStore([]))
+    assert.deepStrictEqual(choices.map(c => c.id), ['live-1'])
+  })
+
+  it('includes a job-bound fixedSessionId even when the session is not live', () => {
+    const ctx = makeCtx([]) // no live sessions at all
+    const store = makeStore([{ id: 'job-1', sessionStrategy: 'fixed', fixedSessionId: 'bound-42' }])
+    const choices = listSessionChoices(ctx, store)
+    const ids = choices.map(c => c.id)
+    assert.ok(ids.includes('bound-42'), 'bound fixedSessionId must be listed despite not being live')
+    assert.match(choices.find(c => c.id === 'bound-42').label, /已绑定/)
+  })
+
+  it('de-duplicates a bound session that is also live', () => {
+    const ctx = makeCtx([{ id: 'bound-42', header: { createdAt: Date.now() } }])
+    const store = makeStore([{ id: 'job-1', sessionStrategy: 'fixed', fixedSessionId: 'bound-42' }])
+    const choices = listSessionChoices(ctx, store)
+    assert.strictEqual(choices.filter(c => c.id === 'bound-42').length, 1)
+  })
+
+  it('ignores jobs that are not fixed strategy', () => {
+    const ctx = makeCtx([])
+    const store = makeStore([{ id: 'job-1', sessionStrategy: 'new', fixedSessionId: undefined }])
+    assert.deepStrictEqual(listSessionChoices(ctx, store), [])
   })
 })
