@@ -2,6 +2,20 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.9] - 2026-09-20
+
+### Changed
+
+- **回退 v0.2.8 的弹层方案（C）**：按反馈「不要弹窗，任务列表要直接在会话窗口里看得见」，侧栏 footer 恢复为**内联任务列表**（v0.2.7 的形态：`定时任务` 标题 + `+ 新建` + 任务行 + 编辑/删除弹窗）。**v0.2.8 的自适应能力（A+B）全部保留**，所以「拖窄侧栏就显示异常」的根因不会再出现。
+- 移除 C 相关实现：`CronLauncher` / `CronOverlay` / `shell.overlay` 槽位注册 / 跨槽位共享 store；面板回到本地数据拉取 + 单条 `jobs-changed` SSE；列表高度锚定上限从弹层的 420px 回到内联面板的 **328px**。
+- 保留的 A（可收缩）：面板 `width:100% / min-width:0 / box-sizing:border-box`；任务行 `min-width:0 / overflow:hidden`；Cron 表达式 `flex-shrink:2` + 省略号；`编`/`删` 与状态 `flex-shrink:0`；列表容器 `overflow-x:hidden`。
+- 保留的 B（宽度分档）：`ResizeObserver` 按实测宽度切档 `full`（≥300px）/ `compact`（220–299px，隐藏表达式）/ `minimal`（<220px，状态收成色点），被省略信息挂 `title`；`wide === false`（rail）时只显示时钟图标。
+
+### Tests
+
+- `node --check lib/*.js` 全通过；单测 **58/58 通过**（宿主侧逻辑未受影响）。
+- 内联面板在 180 / 220 / 305 / 353 / 371 五档侧栏宽度下的无溢出表现，此前已用「宿主 sidebar CSS module + React 18 + 插件真实 `apply()`」的静态复现页逐档截图验证（A+B 与本次回退后的实现一致）。
+
 ## [0.2.8] - 2026-09-20
 
 ### Changed
