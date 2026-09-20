@@ -2,6 +2,25 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.8] - 2026-09-20
+
+### Changed
+
+- **侧栏底部改成「紧凑入口 + 弹层管理器」（方案 C）**：`sidebar.footer.action` 里不再内联整个任务列表，只留一个入口按钮（时钟 + 「定时任务」+ 任务数 + 失败红点；侧栏收起成 rail 时只显示时钟）。点开后在 **`shell.overlay` 弹层**里管理任务（新建/编辑/删除/启停/立即运行），`Esc` 或点遮罩关闭，弹层内带 `role="dialog"` / `aria-modal` 与首焦点。footer 的内容从此与侧栏宽度无关 —— 从形态上消除"拖窄就挤坏"。
+- 入口与管理器共用一份任务数据（一次拉取 + 一条 `jobs-changed` SSE），弹层关闭时不额外轮询；列表在弹层里放宽到 420px 可视高度。
+- 阈值常量与注释同步更新（`LIST_CAP` 328 → 420，管理器不再是 footer 内联面板）。
+
+### Fixed
+
+- **侧边栏拖窄后「定时任务」显示异常（标题被截、`删` 被挤出、多出一条横向滚动条）**：`sidebar.footer.action` 的宿主容器是 row 方向 flex，而旧的任务行有一个约 320px 的**硬下界** —— 开关 30px + 名称/Cron 表达式都 `nowrap` 且不可收缩 + 状态 + `编`/`删` + 间距。侧边栏宽度可拖动（DSH 持久化实测 `panelOpen:false → width 305`、`panelOpen:true → width 371`），一旦窄于该下界行就溢出：`删` 被挤出可视区；又因为列表容器只写了 `overflow-y:auto`，CSS 会把 `overflow-x` 一并算成 `auto`，溢出于是变成一条横向滚动条（就是那条"灰条"）。
+- **方案 A（可收缩样式）**：面板 `width:100% / min-width:0 / box-sizing:border-box`；任务行 `min-width:0 / overflow:hidden`；Cron 表达式允许省略号收缩（`flex-shrink:2`）；`编`/`删` 与状态 `flex-shrink:0` 保证不被压扁；列表容器显式 `overflow-x:hidden`。
+- **方案 B（按宽度分档）**：`ResizeObserver` 按容器实测宽度切档 —— `full`（≥300px：名称 + 表达式 + 状态 + 编/删）、`compact`（220–299px：隐藏表达式）、`minimal`（<220px：状态收成色点）。被隐藏/截断的信息全部挂 `title` tooltip，悬停可看全文。最窄至 180px 也不溢出。
+
+### Tests
+
+- `node --check lib/*.js` 全通过；单测 **58/58 通过**。
+- 真实组件视觉验证（本地静态复现页，不随包发布）：宿主 sidebar 的 CSS module + React 18 + 插件真实 `apply()` 挂载到 6 种侧栏宽度（180 / 220 / 305 / 353 / 371 / rail 60）的 footer，再点开弹层截图确认 —— footer 入口任何宽度都不溢出、rail 只显示时钟；弹层管理器在 560px 卡片里正常列出两条任务（成功/失败态、启停开关、编/删按钮齐全）。
+
 ## [0.2.7] - 2026-09-11
 
 ### Fixed
