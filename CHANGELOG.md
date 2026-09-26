@@ -2,6 +2,17 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.10] - 2026-09-26
+
+### Fixed
+
+- **cron 注入的消息会让目标会话在下次加载时打不开**：DeepSeek Harness 的会话持久层自 v4 起硬性拒绝 `source.kind === 'plugin'` 的消息（`format v4 message requires a producer-owned source kind`，挂在会话日志的行级 admission 与整卷校验两条路径上），cron 触发的 user 消息一旦落盘，该会话在下次扫描时直接抛 `SessionFormatError`。改为生产者自有 kind **`plugin:cron`**（与 harness v3→v4 迁移器为本插件名铸造的 kind 完全一致），附加字段 `jobId` 保留。
+- **执行历史永远显示「成功」**：结果判定此前轮询读取 `agent.session.events`，但 harness 的 Session 没有该访问器（`Array.isArray` 恒为 false → 投递即记成功，失败轮次不标红）。改为订阅公开的 `session/event` Cordis 事件（与 in-repo 观察者同款 seam），等待目标会话 `seq >=` 投递位置的 `turn/end`；等待器在投递前注册、`followup()` 前钉定 seq 阈值，秒败的轮次（如首轮 prompt 组装报错）不会漏记，早于投递位置的旧轮次结束也不会误判为本轮结果。
+
+### Tests
+
+- `node --check lib/*.js` 全通过；单测 **60/60 通过**（新增 2 例：producer-owned source kind 回归、投递位置之前的 `turn/end` 不计入）。
+
 ## [0.2.9] - 2026-09-20
 
 ### Changed
