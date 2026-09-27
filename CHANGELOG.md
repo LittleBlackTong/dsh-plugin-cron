@@ -2,6 +2,18 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.10] - 2026-09-26
+
+### Fixed
+
+- **link 安装时 entry 导入失败（`failed to import`）**：插件此前在运行时裸导入 `@deepseek-ai/schemastery`。`link:`/`file:` 安装的包会被 Node realpath 到 profile 之外，这种裸名导入依赖宿主运行时的 profile 解析拦截按 peerDependencies 供给——桌面 runtime（0.1.7-rc.1 实测）不供给这一步，entry 直接导入失败。将 Config 改为**内联的 StandardSchemaV1 实现**（两个可选字符串字段，`~standard.validate` 契约与 schemastery 一致），插件运行时不再有任何裸名外部导入，registry / `file:` / `link:` 三种安装方式都能导入；`@deepseek-ai/schemastery` 相应从 peerDependencies 移除。
+- **cron 注入的消息会让目标会话在下次加载时打不开**：DeepSeek Harness 的会话持久层自 v4 起硬性拒绝 `source.kind === 'plugin'` 的消息（`format v4 message requires a producer-owned source kind`，挂在会话日志的行级 admission 与整卷校验两条路径上），cron 触发的 user 消息一旦落盘，该会话在下次扫描时直接抛 `SessionFormatError`。改为生产者自有 kind **`plugin:cron`**（与 harness v3→v4 迁移器为本插件名铸造的 kind 完全一致），附加字段 `jobId` 保留。
+- **执行历史永远显示「成功」**：结果判定此前轮询读取 `agent.session.events`，但 harness 的 Session 没有该访问器（`Array.isArray` 恒为 false → 投递即记成功，失败轮次不标红）。改为订阅公开的 `session/event` Cordis 事件（与 in-repo 观察者同款 seam），等待目标会话 `seq >=` 投递位置的 `turn/end`；等待器在投递前注册、`followup()` 前钉定 seq 阈值，秒败的轮次（如首轮 prompt 组装报错）不会漏记，早于投递位置的旧轮次结束也不会误判为本轮结果。
+
+### Tests
+
+- `node --check lib/*.js` 全通过；单测 **65/65 通过**（新增：producer-owned source kind 回归、投递位置之前的 `turn/end` 不计入、内联 Config 校验与零裸导入回归）。
+
 ## [0.2.9] - 2026-09-20
 
 ### Changed

@@ -5,7 +5,8 @@ import { CronScheduler } from '../lib/scheduler.js'
 /**
  * Minimal fake context emulating only what CronScheduler touches:
  *  - ctx.timer.timeout(cb, ms) -> disposer (fire the callback when fired)
- *  - ctx.agents.get() -> live agent with followup() (delivery succeeds)
+ *  - ctx.on('session/event', cb) -> disposer (the live turn-end seam)
+ *  - ctx.agents.get() -> live agent whose followup() settles a completed turn
  *  - ctx.sessions.get() -> undefined (so the 'new' strategy generates an id)
  *  - ctx.emit / ctx.logger -> no-ops
  * The store is an in-memory clone of the CronJobStore API (list/get/update)
@@ -64,6 +65,8 @@ function makeStore(initialJobs = []) {
 }
 
 function makeCtx(store) {
+  const listeners = new Map()
+  let lastSessionId
   const ctx = {
     store,
     timer: {
@@ -74,13 +77,24 @@ function makeCtx(store) {
       },
     },
     agents: {
-      get() {
-        return { followup() {} }
+      get(sessionId) {
+        lastSessionId = sessionId
+        return {
+          followup() {
+            // A minimal live agent: the delivered turn completes normally.
+            ctx.dispatchSessionEvent(lastSessionId, { seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } })
+          },
+        }
       },
       resume: async () => ({ agent: { followup() {} } }),
       create: async () => ({ agent: { followup() {} } }),
     },
     sessions: { get() { return undefined } },
+    on(event, cb) { listeners.set(event, cb); return () => listeners.delete(event) },
+    /** Feed one session event through the registered session/event listener. */
+    dispatchSessionEvent(sessionId, event) {
+      listeners.get('session/event')?.({ id: sessionId }, event)
+    },
     emit() {},
     logger: { info() {}, warn() {}, error() {} },
   }
@@ -176,17 +190,19 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
   /** ctx whose create() actually RUNS the setup hook and exposes its listeners. */
   function makeSetupCtx() {
     const captured = {}
+    const listeners = new Map()
     const ctx = {
       timer: { timeout: () => () => {} },
       agents: {
         get: () => undefined, // no live agent -> resume/create path
         resume: async () => { throw new Error('no persisted session') },
         create: async (options) => {
-          const listeners = new Map()
-          // A completed turn so the outcome poll settles immediately.
+          // A completed turn so the outcome wait settles immediately.
           const agent = {
-            followup() {},
-            session: { seq: 0, events: [{ seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } }] },
+            followup() {
+              ctx.dispatchSessionEvent(options.sessionId, { seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            },
+            session: { id: options.sessionId, seq: 0 },
           }
           options.setup?.({
             agent,
@@ -199,6 +215,10 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
         },
       },
       sessions: { get: () => undefined },
+      on(event, cb) { listeners.set(event, cb); return () => listeners.delete(event) },
+      dispatchSessionEvent(sessionId, event) {
+        listeners.get('session/event')?.({ id: sessionId }, event)
+      },
       get: (name) => name === 'agentDefaultModel'
         ? { currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-flash' }) }
         : undefined,
@@ -226,17 +246,14 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
   it('records a failed run when the delivered turn ends in an error', async () => {
     const store = makeStore([makeJob()])
     const ctx = makeCtx(store)
-    ctx.agents.get = () => ({
-      followup() {},
-      session: {
-        seq: 0,
-        events: [{
+    ctx.agents.get = (sessionId) => ({
+      followup() {
+        ctx.dispatchSessionEvent(sessionId, {
           seq: 1,
           type: 'turn/end',
           data: { reason: { kind: 'error', error: { message: 'prompt variable "{{model}}" has no value' } } },
-        }],
+        })
       },
-      whenIdle: async () => {},
     })
     const scheduler = new CronScheduler({ store, ctx })
     await scheduler.fire(store.get('job-1'))
@@ -250,10 +267,10 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
   it('records success when the delivered turn completes', async () => {
     const store = makeStore([makeJob()])
     const ctx = makeCtx(store)
-    ctx.agents.get = () => ({
-      followup() {},
-      session: { seq: 0, events: [{ seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } }] },
-      whenIdle: async () => {},
+    ctx.agents.get = (sessionId) => ({
+      followup() {
+        ctx.dispatchSessionEvent(sessionId, { seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } })
+      },
     })
     const scheduler = new CronScheduler({ store, ctx })
     await scheduler.fire(store.get('job-1'))
@@ -263,13 +280,13 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
   it('setup survives a context whose scoped .agent access throws (inject guard)', async () => {
     const store = makeStore([makeJob()])
     const captured = {}
+    const listeners = new Map()
     const ctx = {
       timer: { timeout: () => () => {} },
       agents: {
         get: () => undefined,
         resume: async () => { throw new Error('no persisted session') },
         create: async (options) => {
-          const listeners = new Map()
           const agentCtx = {
             // Cordis throws on a scoped service the context does not inject.
             get agent() { throw new Error('cannot get property "agent" without inject') },
@@ -280,13 +297,19 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
           captured.listeners = listeners
           return {
             agent: {
-              followup() {},
-              session: { seq: 0, events: [{ seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } }] },
+              followup() {
+                ctx.dispatchSessionEvent(options.sessionId, { seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } })
+              },
+              session: { id: options.sessionId, seq: 0 },
             },
           }
         },
       },
       sessions: { get: () => undefined },
+      on(event, cb) { listeners.set(event, cb); return () => listeners.delete(event) },
+      dispatchSessionEvent(sessionId, event) {
+        listeners.get('session/event')?.({ id: sessionId }, event)
+      },
       get: (name) => name === 'agentDefaultModel'
         ? { currentSelection: () => ({ provider: 'p', model: 'm' }) }
         : undefined,
@@ -314,21 +337,64 @@ describe('CronScheduler fresh-session setup + real outcome (v0.2.3 regression)',
   it('waits for a turn/end that lands after the followup (no early green)', async () => {
     const store = makeStore([makeJob()])
     const ctx = makeCtx(store)
-    const events = []
-    ctx.agents.get = () => ({
+    ctx.agents.get = (sessionId) => ({
       followup() {
-        // The turn only settles a beat later, after the first poll.
+        // The turn only settles a beat later, after the waiter is armed.
         setTimeout(() => {
-          events.push({ seq: 1, type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'late boom' } } } })
+          ctx.dispatchSessionEvent(sessionId, {
+            seq: 1,
+            type: 'turn/end',
+            data: { reason: { kind: 'error', error: { message: 'late boom' } } },
+          })
         }, 30)
       },
-      session: { seq: 0, events },
     })
     const scheduler = new CronScheduler({ store, ctx })
     await scheduler.fire(store.get('job-1'))
     const job = store.get('job-1')
     assert.strictEqual(job.lastRunStatus, 'failed', 'a late failure must still be recorded')
     assert.match(job.lastRunError, /late boom/)
+  })
+
+  it('delivers the job message with a producer-owned source kind (v4 session format)', async () => {
+    const store = makeStore([makeJob()])
+    const ctx = makeCtx(store)
+    const seen = []
+    ctx.agents.get = (sessionId) => ({
+      followup(message) {
+        seen.push(message)
+        ctx.dispatchSessionEvent(sessionId, { seq: 1, type: 'turn/end', data: { reason: { kind: 'completed' } } })
+      },
+    })
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+
+    assert.strictEqual(seen.length, 1)
+    // `kind: 'plugin'` is refused by v4 persistence admission; `plugin:cron`
+    // is the producer-owned kind the harness migration mints for this plugin.
+    assert.strictEqual(seen[0].source.kind, 'plugin:cron')
+    assert.strictEqual(seen[0].source.jobId, 'job-1')
+  })
+
+  it('ignores a turn/end below the delivery position (previous turn does not count)', async () => {
+    const store = makeStore([makeJob({ sessionStrategy: 'fixed', fixedSessionId: 'fixed-sess' })])
+    const ctx = makeCtx(store)
+    // A fixed session whose previous turn (seq 4) ends right after delivery —
+    // its ending must not be taken as the cron turn's outcome.
+    ctx.sessions.get = () => ({ id: 'fixed-sess', header: { createdAt: Date.now() } })
+    ctx.agents.get = (sessionId) => ({
+      followup() {
+        ctx.dispatchSessionEvent(sessionId, { seq: 4, type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'stale ending' } } } })
+        ctx.dispatchSessionEvent(sessionId, { seq: 9, type: 'turn/end', data: { reason: { kind: 'completed' } } })
+      },
+      // The delivery position: the session sits at seq 5 when followup lands.
+      session: { id: sessionId, seq: 5 },
+    })
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+
+    assert.strictEqual(store.get('job-1').lastRunStatus, 'success', 'only the turn at/after the delivery position settles the run')
+    assert.strictEqual(store.get('job-1').lastRunError, undefined)
   })
 
   it('joins the deployment preset so the agent gets the standard tools', async () => {

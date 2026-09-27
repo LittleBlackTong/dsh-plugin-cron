@@ -6,7 +6,7 @@ DeepSeek Harness 的「定时任务」插件：按 cron 表达式给 agent 排�
 
 ## 怎么工作
 
-- **Host 平面**：持久化 JSON store（`<dshHome>/cron-jobs.json`，原子写）+ 每任务一条 `ctx.timer` 定时链 + 到点 `agent.followup()` 注入合成 user 消息（`source.kind === 'plugin'`）。
+- **Host 平面**：持久化 JSON store（`<dshHome>/cron-jobs.json`，原子写）+ 每任务一条 `ctx.timer` 定时链 + 到点 `agent.followup()` 注入合成 user 消息（`source.kind === 'plugin:cron'`，v4 会话格式的生产者自有 kind）。执行结果通过公开的 `session/event` 事件等待目标会话的 `turn/end`（`seq >=` 投递位置才计入），失败轮次会如实记为「失败」。
 - **会话策略**：
   - `new`（默认）：每次触发开一个新会话，干净隔离；
   - `fixed`：绑定指定会话，累积上下文。绑定会话时是**下拉选择**（列出所有存活会话的标题），不用手填 session id。
