@@ -2,6 +2,22 @@
 
 所有记录跟随 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格；版本号与 `package.json` 保持一致。
 
+## [0.2.10] - 2026-09-28
+
+### Fixed（DSH session format v4 兼容）
+
+- **修复定时任务注入消息被 v4 拒绝**：`CronScheduler.fire()` 生成的消息 source 从 `{ kind: 'plugin', plugin: 'cron', jobId }` 改为 **`{ kind: 'plugin:cron', jobId }`**（`jobId` 保留）。
+  - **症状**：任务到点触发时抛 `SessionFormatError: format v4 message requires a producer-owned source kind`；它被 `dsh-agent-loop` 包成 `code: 'UNKNOWN'`，显示为 `... source kind UNKNOWN`。
+  - **原因**：session format **v4**（官方 DeepSeek Harness **0.1.7+**）的原生准入拒绝 `kind === "plugin"`，要求 producer-owned kind；第三方插件形态为 `plugin:<name>`。
+  - **兼容性门槛**：v4 与 v3 的 `SOURCE_KINDS` 白名单互斥（v3 只认 `plugin`），**无法同时兼容**。**本版起要求 DSH session format v4（官方 0.1.7+）**；旧版 DSH 请停留在 0.2.9。
+  - **历史 session 不受影响**：v3→v4 迁移会自动转换旧 wrapper。
+
+### Tests
+
+- 新增 `injects a session-format-v4 producer-owned source (plugin:cron)`；`makeCtx` 增加可选的 `captured` 钩子以捕获投递的消息（不影响既有调用方）。
+- 先写测试并确认其失败（`actual: {jobId:'job-1',kind:'plugin',plugin:'cron'}` vs `expected: {kind:'plugin:cron',jobId:'job-1'}`）后才改实现。
+- 单测 **59/59 通过**。
+
 ## [0.2.9] - 2026-09-20
 
 ### Changed

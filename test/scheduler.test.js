@@ -63,7 +63,7 @@ function makeStore(initialJobs = []) {
   }
 }
 
-function makeCtx(store) {
+function makeCtx(store, captured = {}) {
   const ctx = {
     store,
     timer: {
@@ -75,10 +75,10 @@ function makeCtx(store) {
     },
     agents: {
       get() {
-        return { followup() {} }
+        return { followup(m) { captured.message = m } }
       },
-      resume: async () => ({ agent: { followup() {} } }),
-      create: async () => ({ agent: { followup() {} } }),
+      resume: async () => ({ agent: { followup(m) { captured.message = m } } }),
+      create: async () => ({ agent: { followup(m) { captured.message = m } } }),
     },
     sessions: { get() { return undefined } },
     emit() {},
@@ -169,6 +169,19 @@ describe('CronScheduler timer lifecycle (C2 regression)', () => {
     const ctx = makeCtx(store)
     const scheduler = new CronScheduler({ store, ctx })
     assert.strictEqual(scheduler.runNow('nonexistent'), false)
+  })
+
+  it('injects a session-format-v4 producer-owned source (plugin:cron)', async () => {
+    // v4 native admission refuses the retired {kind:'plugin', plugin:'cron'}
+    // wrapper; the producer kind must be carried on `kind` itself.
+    const store = makeStore([makeJob()])
+    const captured = {}
+    const ctx = makeCtx(store, captured)
+    const scheduler = new CronScheduler({ store, ctx })
+    await scheduler.fire(store.get('job-1'))
+
+    assert.ok(captured.message, 'fire() must deliver a message through the agent')
+    assert.deepStrictEqual(captured.message.source, { kind: 'plugin:cron', jobId: 'job-1' })
   })
 })
 

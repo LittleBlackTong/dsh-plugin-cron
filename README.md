@@ -115,6 +115,7 @@ node --test 'test/*.test.js'
 - `nextRunAt` / `skippedAt` 是易失字段（进程内），重启后按当前时间重新计算。
 - 固定会话若绑定了一个已不存在的会话，触发时会自动新建并回写 `fixedSessionId`。
 - 到点触发需要目标 session 能启动 agent（有 agent 工厂 + 持久化后端）；无可用 agent 时记为「失败」并记录原因，不会崩溃。
+- **版本要求：DSH session format v4（官方 DeepSeek Harness 0.1.7+）**。注入消息的 source 使用 producer-owned kind `plugin:cron`；v4 拒绝 v3 的 `{kind:'plugin', plugin:'cron'}` wrapper，报 `format v4 message requires a producer-owned source kind`（被包成 `code: "UNKNOWN"`，界面显示为 `... source kind UNKNOWN`）。v4 与 v3 白名单互斥，无法同时兼容两版；**0.2.9 及更早版本在 v4 上会触发该错误**。
 
 ## License
 
